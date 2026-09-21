@@ -109,12 +109,31 @@ export function bucketize(
   return buckets
 }
 
-export function summary(all: JevSample[]) {
+/** The tile answers "how fast right now", so the rate reads a short span. */
+const RATE_SPAN_MS = 10_000
+
+export function summary(all: JevSample[], now = Date.now()) {
   const sorted = all.map((sample) => sample.ms).sort((a, b) => a - b)
   return {
     total: all.length,
     failed: all.filter((sample) => !sample.ok).length,
+    perSecond: rate(all, now),
     p50: sorted.length ? Math.round(quantile(sorted, 0.5)) : 0,
     p95: sorted.length ? Math.round(quantile(sorted, 0.95)) : 0,
   }
+}
+
+/**
+ * Requests per second over the last few seconds. Two denominators look
+ * plausible here and both climb instead of reporting a rate: the nominal
+ * window counts time that has not elapsed yet, and the span back to the oldest
+ * retained sample counts an idle gap left by an earlier run. This counts only
+ * the time observed inside the recent span, floored at a second so a burst
+ * landing in one tick does not extrapolate.
+ */
+function rate(all: JevSample[], now: number) {
+  const recent = all.filter((sample) => sample.t >= now - RATE_SPAN_MS)
+  if (recent.length === 0) return 0
+  const oldest = recent.reduce((min, sample) => Math.min(min, sample.t), now)
+  return recent.length / (Math.max(1_000, now - oldest) / 1000)
 }

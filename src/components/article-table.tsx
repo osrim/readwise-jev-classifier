@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import {
@@ -17,6 +17,7 @@ import { ArrowUpDown, ExternalLink, Loader2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -26,7 +27,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { ArticleRecord } from '@/lib/pb'
-import { appliedTags, isScored, TAG_THRESHOLD, uncertainTags } from '@/lib/tags'
+import { appliedTags, isScored, UNCERTAIN_BAND, uncertainTags } from '@/lib/tags'
 
 // v9 tree-shakes anything not registered here.
 const features = tableFeatures({
@@ -51,7 +52,7 @@ export type ResultColumn = {
 
 export type ArticleTableProps = {
   data: ArticleRecord[]
-  /** PocketBase record ids in flight. */
+  /** Record ids queued or in flight. A run marks its whole batch at once. */
   pending: Set<string>
   errors: Record<string, string>
   result: ResultColumn
@@ -60,21 +61,14 @@ export type ArticleTableProps = {
 
 export function ArticleTable({ data, pending, errors, result, onRun }: ArticleTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'saved_at', desc: true }])
+  const [autoScroll, setAutoScroll] = useState(true)
+  const autoScrollId = useId()
 
   const columns: ColumnDef<typeof features, ArticleRecord>[] = [
     column.accessor('title', {
       header: 'Article',
       sortFn: 'alphanumeric',
       cell: ({ row }) => <TitleCell article={row.original} />,
-    }),
-    column.accessor('summary', {
-      header: 'Meta description',
-      enableSorting: false,
-      cell: ({ getValue }) => (
-        <p className="line-clamp-3 max-w-2xs text-sm whitespace-normal text-muted-foreground">
-          {getValue() || <span className="italic">none</span>}
-        </p>
-      ),
     }),
     column.accessor((row) => (row.saved_at ? dayjs(row.saved_at).valueOf() : 0), {
       id: 'saved_at',
@@ -117,62 +111,105 @@ export function ArticleTable({ data, pending, errors, result, onRun }: ArticleTa
     onSortingChange: setSorting,
   })
 
+  const rows = table.getRowModel().rows
+
+  // A run marks its whole batch pending up front, so the first row still
+  // pending is the boundary between answered and unanswered. It walks down as
+  // answers land. Undefined between runs, so the page only moves during one.
+  const followId = rows.find((row) => pending.has(row.original.id))?.original.id
+  const followRef = useRef<HTMLTableRowElement>(null)
+  const settledAt = useRef(0)
+
+  useEffect(() => {
+    const row = followRef.current
+    if (!autoScroll || !row) return
+    // Four requests are in flight, so a row lands every ~150ms. Scrolling on
+    // each one cancels the running smooth scroll and restarts it, which reads
+    // as a stutter. Move only once the frontier leaves the middle band, and
+    // leave the scroll alone until it has had time to land.
+    if (Date.now() < settledAt.current) return
+
+    const { top, bottom } = row.getBoundingClientRect()
+    const margin = innerHeight * 0.25
+    if (top >= margin && bottom <= innerHeight - margin) return
+
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+    settledAt.current = Date.now() + (reduced ? 0 : 700)
+    row.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' })
+  }, [followId, autoScroll])
+
   return (
-    <div className="overflow-hidden rounded-lg border">
-      <Table>
-        <TableHeader>
-          {table.getHeaderGroups().map((group) => (
-            <TableRow key={group.id}>
-              {group.headers.map((header) => (
-                <TableHead key={header.id}>
-                  {header.column.getCanSort() ? (
-                    <button
-                      type="button"
-                      className="flex items-center gap-1 hover:text-foreground"
-                      onClick={header.column.getToggleSortingHandler()}
-                    >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      <ArrowUpDown className="size-3 opacity-50" />
-                    </button>
-                  ) : (
-                    flexRender(header.column.columnDef.header, header.getContext())
-                  )}
-                </TableHead>
-              ))}
-            </TableRow>
-          ))}
-        </TableHeader>
-        <TableBody>
-          {table.getRowModel().rows.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                Nothing fetched yet. Use “Fetch next 10” above.
-              </TableCell>
-            </TableRow>
-          ) : (
-            table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id} className="align-top">
-                {row.getAllCells().map((cell) => (
-                  <TableCell key={cell.id} className="py-3">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
+    <div className="space-y-2">
+      <div
+        className="flex items-center justify-end gap-2"
+        title="Scroll each row into view as it is answered"
+      >
+        <Switch id={autoScrollId} checked={autoScroll} onCheckedChange={setAutoScroll} />
+        <label htmlFor={autoScrollId} className="text-sm text-muted-foreground">
+          Auto-scroll
+        </label>
+      </div>
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((group) => (
+              <TableRow key={group.id}>
+                {group.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.column.getCanSort() ? (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 hover:text-foreground"
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        <ArrowUpDown className="size-3 opacity-50" />
+                      </button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
+                  </TableHead>
                 ))}
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="h-32 text-center text-muted-foreground">
+                  Nothing fetched yet. Use “Fetch next 10” above.
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  ref={row.original.id === followId ? followRef : undefined}
+                  className="align-top"
+                >
+                  {row.getAllCells().map((cell) => (
+                    <TableCell key={cell.id} className="py-3">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }
 
 function TitleCell({ article }: { article: ArticleRecord }) {
   return (
-    <div className="max-w-xs space-y-1">
+    <div className="max-w-xl space-y-1">
       <a
         href={article.source_url}
         target="_blank"
         rel="noreferrer"
+        title={article.title}
         className="group flex items-start gap-1 font-medium hover:underline"
       >
         <span className="line-clamp-2">{article.title}</span>
@@ -237,7 +274,9 @@ export function TagCell({ article }: { article: ArticleRecord }) {
   const unsure = uncertainTags(article.scores)
 
   if (tags.length === 0 && unsure.length === 0) {
-    return <span className="text-sm text-muted-foreground">no tag reached {TAG_THRESHOLD}</span>
+    // Everything from here up is listed, applied or unsure. The apply
+    // threshold would name a condition that holds for listed rows too.
+    return <span className="text-sm text-muted-foreground">no tag reached {UNCERTAIN_BAND[0]}</span>
   }
 
   return (

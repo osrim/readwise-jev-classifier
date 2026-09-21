@@ -143,7 +143,7 @@ test('a wider window rolls up into the same number of buckets', () => {
 })
 
 test('summary reports percentiles over the whole window', () => {
-  const stats = summary([at(1, 10), at(2, 20), at(3, 30), at(4, 40, false)])
+  const stats = summary([at(1, 10), at(2, 20), at(3, 30), at(4, 40, false)], 60_000)
 
   assert.equal(stats.total, 4)
   assert.equal(stats.failed, 1)
@@ -152,7 +152,44 @@ test('summary reports percentiles over the whole window', () => {
 })
 
 test('summary of nothing is zeroes, not NaN', () => {
-  assert.deepEqual(summary([]), { total: 0, failed: 0, p50: 0, p95: 0 })
+  assert.deepEqual(summary([], 0), { total: 0, failed: 0, perSecond: 0, p50: 0, p95: 0 })
+})
+
+test('the rate reads the run it is in, from the first second', () => {
+  const now = 1_000_000
+  // Ten requests, all inside the last five seconds.
+  const recent = Array.from({ length: 10 }, (_, i) => at(now - 5_000 + i * 400, 100))
+
+  assert.equal(summary(recent, now).perSecond, 2)
+})
+
+test('a steady run holds its rate rather than climbing', () => {
+  const now = 1_000_000
+  const steady = Array.from({ length: 60 }, (_, i) => at(now - 60_000 + i * 1_000, 100))
+
+  assert.equal(summary(steady, now).perSecond, 1)
+})
+
+test('a fresh burst is not dragged down by an idle gap before it', () => {
+  const now = 1_000_000
+  const earlier = Array.from({ length: 50 }, (_, i) => at(now - 45_000 + i * 100, 100))
+  const burst = Array.from({ length: 8 }, (_, i) => at(now - 2_000 + i * 250, 100))
+
+  assert.equal(summary([...earlier, ...burst], now).perSecond, 4, 'the gap is not the denominator')
+})
+
+test('the rate returns to zero once nothing recent has finished', () => {
+  const now = 1_000_000
+  const stale = Array.from({ length: 40 }, (_, i) => at(now - 50_000 + i * 100, 100))
+
+  assert.equal(summary(stale, now).perSecond, 0)
+})
+
+test('a burst inside one second does not extrapolate to a huge rate', () => {
+  const now = 1_000_000
+  const burst = Array.from({ length: 4 }, (_, i) => at(now - 200 + i * 50, 100))
+
+  assert.equal(summary(burst, now).perSecond, 4, 'floored at a one-second span')
 })
 
 test('the newest bucket is the one still open, so an aligned clock leaves it empty', () => {

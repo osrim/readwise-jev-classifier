@@ -95,14 +95,16 @@ sharpening.
 ## Triage
 
 The second page (`#triage`) asks one question per article and returns a single
-verdict: read now, skim, keep as reference, or drop. It is the one place a
-System One `choice`. The answer carries a probability across all four options,
-and the spread of those probabilities gives the confidence shown beside the
-verdict.
+verdict: read now, skim, keep as reference, or drop. It is the one place that
+uses a System One `choice`. The answer carries a probability across all four
+options, and `confidence` collapses that spread into the number shown beside
+the verdict.
 
-Criteria there describe the article, never the reader, because Jev sees a title
-and a meta description and cannot know who is asking. The page stores verdicts
-in the `triage` field, and "Clear verdicts" removes them.
+Each verdict states `what` it covers, a `not_for` naming the sibling most
+likely to take the article instead, and two example titles. Criteria describe
+the article, never the reader, because Jev sees a title and a meta description
+and cannot know who is asking. The page stores verdicts in the `triage` field,
+and "Clear verdicts" removes them.
 
 ## Credentials
 

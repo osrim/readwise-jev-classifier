@@ -77,12 +77,11 @@ export function MetricsPanel() {
   }, [window])
 
   const buckets = bucketize(samples, window.ms, window.bucketMs, now)
-  const stats = summary(samples)
-  const perSecond = stats.total / (window.ms / 1000)
+  const stats = summary(samples, now)
 
   const tiles = [
     { label: 'In flight', value: inFlight },
-    { label: 'Throughput', value: `${perSecond.toFixed(2)}/s` },
+    { label: 'Throughput', value: `${stats.perSecond.toFixed(2)}/s` },
     { label: 'Failed', value: stats.failed },
     { label: 'p50', value: `${stats.p50} ms` },
     { label: 'p95', value: `${stats.p95} ms` },
@@ -90,7 +89,7 @@ export function MetricsPanel() {
 
   return (
     <Card
-      className="gap-0 border-emerald-300 bg-emerald-50 py-4 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-50"
+      className="sticky top-0 z-10 gap-0 border-emerald-300 bg-emerald-50 py-4 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-50"
     >
       <Collapsible open={open} onOpenChange={setOpen}>
         <CardHeader className="px-4">
@@ -128,9 +127,9 @@ export function MetricsPanel() {
                 variant="ghost"
                 size="sm"
                 className="hover:bg-emerald-100 dark:hover:bg-emerald-900"
-                aria-label={open ? 'Hide metrics' : 'Show metrics'}
+                aria-label={open ? 'Hide charts' : 'Show charts'}
               >
-                {open ? 'Hide' : 'Show'}
+                {open ? 'Hide charts' : 'Show charts'}
                 <ChevronDown
                   className={open ? 'rotate-180 transition-transform' : 'transition-transform'}
                 />
@@ -139,23 +138,25 @@ export function MetricsPanel() {
           </CardAction>
         </CardHeader>
 
-        <CollapsibleContent>
-          <CardContent className="space-y-4 px-4 pt-4">
-            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-emerald-300 bg-emerald-300 sm:grid-cols-5 dark:border-emerald-800 dark:bg-emerald-800">
-              {tiles.map((tile) => (
-                <div key={tile.label} className="bg-emerald-100 px-3 py-2 dark:bg-emerald-900">
-                  <dt className="text-xs text-emerald-800/80 dark:text-emerald-200/70">
-                    {tile.label}
-                  </dt>
-                  <dd className="font-mono text-xl tabular-nums">{tile.value}</dd>
-                </div>
-              ))}
-            </dl>
+        {/* Outside the collapsible: collapsing leaves a compact stats bar stuck
+            to the top, which is the point of keeping the panel there. */}
+        <CardContent className="px-4 pt-4">
+          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-emerald-300 bg-emerald-300 sm:grid-cols-5 dark:border-emerald-800 dark:bg-emerald-800">
+            {tiles.map((tile) => (
+              <div key={tile.label} className="bg-emerald-100 px-3 py-2 dark:bg-emerald-900">
+                <dt className="text-xs text-emerald-800/80 dark:text-emerald-200/70">
+                  {tile.label}
+                </dt>
+                <dd className="font-mono text-xl tabular-nums">{tile.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </CardContent>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Throughput buckets={buckets} bucketMs={window.bucketMs} />
-              <Latency buckets={buckets} />
-            </div>
+        <CollapsibleContent>
+          <CardContent className="grid gap-4 px-4 pt-4 lg:grid-cols-2">
+            <Throughput buckets={buckets} bucketMs={window.bucketMs} />
+            <Latency buckets={buckets} />
           </CardContent>
         </CollapsibleContent>
       </Collapsible>

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 
 import type { ArticleRecord } from './pb.ts'
-import { isTriaged, triageArticle, triageRank, VERDICTS } from './triage.ts'
+import { isTriaged, triageArticle, triageRank, VERDICT_CRITERIA, VERDICTS } from './triage.ts'
 
 const article = { id: 'a', title: 'A post', summary: 'About something' } as ArticleRecord
 
@@ -54,6 +54,17 @@ test('choice criteria go out as an option map, not a list', async () => {
   await triageArticle(article)
 
   assert.ok(!Array.isArray(seen.body!.questions.verdict!.criteria))
+})
+
+test('every verdict states its boundary, with examples', () => {
+  for (const [id, criterion] of Object.entries(VERDICT_CRITERIA)) {
+    assert.ok(criterion.what.length > 0, `${id} has no "what"`)
+    assert.ok(criterion.not_for.length > 0, `${id} has no "not_for"`)
+    assert.ok(criterion.examples.length >= 2, `${id} needs 2+ examples`)
+    for (const example of criterion.examples) {
+      assert.ok(example.length > 0, `${id} has an empty example`)
+    }
+  }
 })
 
 test('triageArticle scales confidence to 0-100', async () => {
